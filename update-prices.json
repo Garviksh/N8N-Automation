@@ -1,0 +1,86 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Local File Trigger",
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "read",
+      "name": "Read Binary File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "options": { "headerRow": true }
+      },
+      "id": "csv",
+      "name": "Parse CSV",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "collectionId": "YOUR_COLLECTION_ID",
+        "returnAll": true
+      },
+      "id": "get",
+      "name": "Get Collection Products",
+      "type": "n8n-nodes-base.shopify",
+      "typeVersion": 2,
+      "position": [660, 0],
+      "credentials": { "shopifyApi": { "id": "shopify", "name": "Shopify Admin API" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const map = {};\nitems[0].json.forEach(r => map[r.sku.toLowerCase()] = r.price);\nreturn items.map(i => ({ json: { ...i.json, skuMap: map } }));"
+      },
+      "id": "map",
+      "name": "Build SKU Map",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const map = items[0].json.skuMap;\nconst out = [];\nfor (const prod of items[0].json.products || items) {\n  for (const v of prod.variants) {\n    const sku = (v.sku || '').toLowerCase();\n    if (sku in map) {\n      out.push({ json: { id: v.id, price: map[sku] } });\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "prep",
+      "name": "Prepare Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "updateFields": { "price": "={{ $json.price }}" }
+      },
+      "id": "update",
+      "name": "Update Variant",
+      "type": "n8n-nodes-base.shopify",
+      "typeVersion": 2,
+      "position": [1320, 0],
+      "credentials": { "shopifyApi": { "id": "shopify", "name": "Shopify Admin API" } }
+    }
+  ],
+  "connections": {
+    "Local File Trigger": { "main": [[{ "node": "Read Binary File", "type": "main", "index": 0 }]] },
+    "Read Binary File": { "main": [[{ "node": "Parse CSV", "type": "main", "index": 0 }]] },
+    "Parse CSV": { "main": [[{ "node": "Get Collection Products", "type": "main", "index": 0 }]] },
+    "Get Collection Products": { "main": [[{ "node": "Build SKU Map", "type": "main", "index": 0 }]] },
+    "Build SKU Map": { "main": [[{ "node": "Prepare Updates", "type": "main", "index": 0 }]] },
+    "Prepare Updates": { "main": [[{ "node": "Update Variant", "type": "main", "index": 0 }]] }
+  },
+  "meta": { "templateCredsSetup": true }
+}
