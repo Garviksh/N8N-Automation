@@ -1,86 +1,141 @@
 {
+  "name": "Shopify Price Update with AI Validation",
   "nodes": [
     {
-      "parameters": {},
-      "id": "trigger",
-      "name": "Local File Trigger",
-      "type": "n8n-nodes-base.localFileTrigger",
-      "typeVersion": 1,
-      "position": [0, 0]
-    },
-    {
       "parameters": {
-        "options": {}
+        "operation": "fromFile",
+        "filePath": "/data/prices.csv"
       },
-      "id": "read",
-      "name": "Read Binary File",
-      "type": "n8n-nodes-base.readBinaryFile",
-      "typeVersion": 1,
-      "position": [220, 0]
-    },
-    {
-      "parameters": {
-        "options": { "headerRow": true }
-      },
-      "id": "csv",
-      "name": "Parse CSV",
+      "id": "1",
+      "name": "Read CSV",
       "type": "n8n-nodes-base.spreadsheetFile",
       "typeVersion": 1,
-      "position": [440, 0]
+      "position": [250, 300]
     },
     {
       "parameters": {
-        "operation": "getAll",
-        "collectionId": "YOUR_COLLECTION_ID",
-        "returnAll": true
+        "batchSize": 1
       },
-      "id": "get",
-      "name": "Get Collection Products",
-      "type": "n8n-nodes-base.shopify",
-      "typeVersion": 2,
-      "position": [660, 0],
-      "credentials": { "shopifyApi": { "id": "shopify", "name": "Shopify Admin API" } }
+      "id": "2",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [500, 300]
     },
     {
       "parameters": {
-        "jsCode": "const map = {};\nitems[0].json.forEach(r => map[r.sku.toLowerCase()] = r.price);\nreturn items.map(i => ({ json: { ...i.json, skuMap: map } }));"
+        "authentication": "headerAuth",
+        "url": "https://yourstore.myshopify.com/admin/api/2025-01/products.json?handle={{$json[\"handle\"]}}",
+        "method": "GET",
+        "responseFormat": "json",
+        "headerParametersJson": "={ \"X-Shopify-Access-Token\": \"YOUR_API_TOKEN\" }"
       },
-      "id": "map",
-      "name": "Build SKU Map",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [880, 0]
+      "id": "3",
+      "name": "Fetch Product by Handle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [750, 300]
     },
     {
       "parameters": {
-        "jsCode": "const map = items[0].json.skuMap;\nconst out = [];\nfor (const prod of items[0].json.products || items) {\n  for (const v of prod.variants) {\n    const sku = (v.sku || '').toLowerCase();\n    if (sku in map) {\n      out.push({ json: { id: v.id, price: map[sku] } });\n    }\n  }\n}\nreturn out;"
+        "authentication": "headerAuth",
+        "url": "https://yourstore.myshopify.com/admin/api/2025-01/variants={{$json[\"products\"][0][\"variants\"][0][\"id\"]}}.json",
+        "method": "PUT",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "bodyParametersJson": "={ \"variant\": { \"id\": {{$json[\"products\"][0][\"variants\"][0][\"id\"]}}, \"price\": \"{{$json[\"new_price\"]}}\" } }",
+        "headerParametersJson": "={ \"X-Shopify-Access-Token\": \"YOUR_API_TOKEN\", \"Content-Type\": \"application/json\" }"
       },
-      "id": "prep",
-      "name": "Prepare Updates",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1100, 0]
+      "id": "4",
+      "name": "Update Shopify Variant Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1000, 300]
     },
     {
       "parameters": {
-        "operation": "update",
-        "updateFields": { "price": "={{ $json.price }}" }
+        "authentication": "headerAuth",
+        "url": "https://yourstore.myshopify.com/admin/api/2025-01/variants/{{$json[\"variant\"][\"id\"]}}.json",
+        "method": "GET",
+        "responseFormat": "json",
+        "headerParametersJson": "={ \"X-Shopify-Access-Token\": \"YOUR_API_TOKEN\" }"
       },
-      "id": "update",
-      "name": "Update Variant",
-      "type": "n8n-nodes-base.shopify",
-      "typeVersion": 2,
-      "position": [1320, 0],
-      "credentials": { "shopifyApi": { "id": "shopify", "name": "Shopify Admin API" } }
+      "id": "5",
+      "name": "Fetch Variant After Update",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "prompt": "Check if the Shopify variant price was updated correctly. Requested new price: {{$json[\"new_price\"]}}. Shopify returned price: {{$json[\"variant\"][\"price\"]}}. Respond with PASS if it matches, else FAIL with reason."
+      },
+      "id": "6",
+      "name": "AI Validation",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1500, 300],
+      "credentials": {
+        "openAiApi": "YOUR_OPENAI_API_CREDENTIAL"
+      }
     }
   ],
   "connections": {
-    "Local File Trigger": { "main": [[{ "node": "Read Binary File", "type": "main", "index": 0 }]] },
-    "Read Binary File": { "main": [[{ "node": "Parse CSV", "type": "main", "index": 0 }]] },
-    "Parse CSV": { "main": [[{ "node": "Get Collection Products", "type": "main", "index": 0 }]] },
-    "Get Collection Products": { "main": [[{ "node": "Build SKU Map", "type": "main", "index": 0 }]] },
-    "Build SKU Map": { "main": [[{ "node": "Prepare Updates", "type": "main", "index": 0 }]] },
-    "Prepare Updates": { "main": [[{ "node": "Update Variant", "type": "main", "index": 0 }]] }
-  },
-  "meta": { "templateCredsSetup": true }
+    "Read CSV": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Fetch Product by Handle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Product by Handle": {
+      "main": [
+        [
+          {
+            "node": "Update Shopify Variant Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Shopify Variant Price": {
+      "main": [
+        [
+          {
+            "node": "Fetch Variant After Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Variant After Update": {
+      "main": [
+        [
+          {
+            "node": "AI Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
 }
